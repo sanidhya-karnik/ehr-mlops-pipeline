@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: mimic_hosp
+    description: "MIMIC-IV Hospital module tables"
+    schema: mimic_hosp
+    tables:
+      - name: patients
+        description: "Patient demographics"
+      - name: admissions
+        description: "Hospital admissions"
+      - name: diagnoses_icd
+        description: "Diagnosis codes (ICD-9/10)"
+      - name: labevents
+        description: "Laboratory measurements"
+      - name: prescriptions
+        description: "Medication orders"
+
+models:
+  - name: stg_patients
+    description: "Cleaned patient demographics"
+  - name: stg_admissions
+    description: "Cleaned hospital admissions"
+  - name: stg_diagnoses
+    description: "Cleaned diagnosis codes"
+  - name: stg_labevents
+    description: "Cleaned lab events with test names"
+  - name: stg_prescriptions
+    description: "Cleaned prescriptions with high-risk flags"

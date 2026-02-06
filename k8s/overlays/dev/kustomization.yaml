@@ -1,0 +1,85 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mlops
+
+resources:
+  - ../../base
+
+labels:
+  - pairs:
+      environment: dev
+    includeSelectors: false
+
+images:
+  - name: mimic-mlops-serving
+    newName: mimic-mlops-serving
+    newTag: dev
+  - name: mimic-mlops-training
+    newName: mimic-mlops-training
+    newTag: dev
+  - name: mimic-mlops-dbt
+    newName: mimic-mlops-dbt
+    newTag: dev
+
+replicas:
+  - name: model-serving
+    count: 1
+
+patches:
+  # Patch ConfigMap for dev environment
+  - target:
+      kind: ConfigMap
+      name: mlops-config
+    patch: |-
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: DEBUG
+
+  # Patch Secret for dev environment
+  - target:
+      kind: Secret
+      name: mlops-secrets
+    patch: |-
+      - op: replace
+        path: /stringData/DB_USER
+        value: mimic
+      - op: replace
+        path: /stringData/DB_PASSWORD
+        value: mimic_password
+      - op: replace
+        path: /stringData/AWS_ACCESS_KEY_ID
+        value: minioadmin
+      - op: replace
+        path: /stringData/AWS_SECRET_ACCESS_KEY
+        value: minioadmin
+
+  # Reduce resources for dev
+  - target:
+      kind: Deployment
+      name: model-serving
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 100m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 256Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 500m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+
+  # Reduce HPA for dev
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: model-serving-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 2

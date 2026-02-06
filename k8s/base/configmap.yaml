@@ -1,0 +1,16 @@
+# =============================================================================
+# MLOps ConfigMap
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-config
+  namespace: mlops
+data:
+  LOG_LEVEL: "INFO"
+  S3_ENDPOINT_URL: "http://minio:9000"
+  S3_BUCKET_MODELS: "mimic-models"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_NAME: "mimic"
+  MODEL_NAME: "readmission_model"

@@ -1,0 +1,49 @@
+# =============================================================================
+# Namespace, ServiceAccount, and Base Config
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlops
+  labels:
+    app.kubernetes.io/name: mimic-mlops
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mlops-app
+  namespace: mlops
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlops-config
+  namespace: mlops
+data:
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  MODEL_NAME: "readmission_model"
+  FEATURE_VERSION: "v1"
+  S3_ENDPOINT_URL: "http://minio:9000"
+  S3_BUCKET_MODELS: "mimic-models"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_NAME: "mimic"
+
+---
+# Base secrets - override in environment-specific overlays
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mlops-secrets
+  namespace: mlops
+type: Opaque
+stringData:
+  DB_USER: "placeholder"
+  DB_PASSWORD: "placeholder"
+  AWS_ACCESS_KEY_ID: "placeholder"
+  AWS_SECRET_ACCESS_KEY: "placeholder"

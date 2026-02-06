@@ -1,0 +1,264 @@
+# =============================================================================
+# MIMIC-IV MLOps Platform - Local Development Stack
+# =============================================================================
+# Services: PostgreSQL, MinIO (S3), LocalStack (SQS), Airflow, Redis
+# =============================================================================
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.8.1-python3.11
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 10
+    # === FIX: Install dbt and ML dependencies in Airflow ===
+    _PIP_ADDITIONAL_REQUIREMENTS: >-
+      dbt-postgres==1.9.0
+      scikit-learn==1.5.2
+      xgboost==2.1.3
+      pandas==2.2.3
+      boto3==1.35.0
+      psycopg2-binary==2.9.10
+    # Custom environment for our pipeline
+    MIMIC_DATA_PATH: /opt/airflow/data/mimic-iv
+    S3_ENDPOINT_URL: http://minio:9000
+    S3_BUCKET_RAW: mimic-raw
+    S3_BUCKET_PROCESSED: mimic-processed
+    S3_BUCKET_MODELS: mimic-models
+    AWS_ACCESS_KEY_ID: minioadmin
+    AWS_SECRET_ACCESS_KEY: minioadmin
+    SQS_ENDPOINT_URL: http://localstack:4566
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_NAME: mimic
+    DB_USER: mimic
+    DB_PASSWORD: mimic_password
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./dbt:/opt/airflow/dbt
+    - ./src:/opt/airflow/src
+    - ./data:/opt/airflow/data
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+
+services:
+  # ===========================================================================
+  # PostgreSQL - Main database (Airflow, dbt, features)
+  # ===========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: mlops-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_MULTIPLE_DATABASES: airflow,mimic
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mlops-network
+
+  # ===========================================================================
+  # MinIO - S3-compatible object storage
+  # ===========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: mlops-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mlops-network
+
+  # Create default buckets
+  minio-init:
+    image: minio/mc:latest
+    container_name: mlops-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/mimic-raw --ignore-existing;
+      mc mb myminio/mimic-processed --ignore-existing;
+      mc mb myminio/mimic-models --ignore-existing;
+      exit 0;
+      "
+    networks:
+      - mlops-network
+
+  # ===========================================================================
+  # LocalStack - AWS SQS emulation
+  # ===========================================================================
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: mlops-localstack
+    environment:
+      - SERVICES=sqs
+      - DEBUG=0
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - ./scripts/init-localstack.sh:/etc/localstack/init/ready.d/init.sh:ro
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mlops-network
+
+  # ===========================================================================
+  # Redis - Caching
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: mlops-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mlops-network
+
+  # ===========================================================================
+  # Airflow - Scheduler
+  # ===========================================================================
+  airflow-init:
+    <<: *airflow-common
+    container_name: mlops-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow users create \
+          --username airflow \
+          --password airflow \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    networks:
+      - mlops-network
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: mlops-airflow-scheduler
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - mlops-network
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: mlops-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - mlops-network
+
+  # ===========================================================================
+  # Model Serving API
+  # Note: For K8s deployment, build and push images with:
+  #   docker build -t mimic-mlops-serving:latest -f docker/Dockerfile.serving .
+  #   docker build -t mimic-mlops-training:latest -f docker/Dockerfile.training .
+  # ===========================================================================
+  model-api:
+    image: mimic-mlops-serving:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.serving
+    container_name: mlops-model-api
+    environment:
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_BUCKET_MODELS=mimic-models
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=mimic
+      - DB_USER=mimic
+      - DB_PASSWORD=mimic_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mlops-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  mlops-network:
+    driver: bridge
+    name: mlops-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+  minio-data:
+  localstack-data:
+  redis-data:

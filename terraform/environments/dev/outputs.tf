@@ -1,0 +1,9 @@
+output "vpc_id" { value = module.vpc.vpc_id }
+output "eks_cluster_name" { value = module.eks.cluster_name }
+output "eks_cluster_endpoint" { value = module.eks.cluster_endpoint }
+output "s3_raw_bucket" { value = module.s3.raw_bucket_name }
+output "s3_processed_bucket" { value = module.s3.processed_bucket_name }
+output "s3_models_bucket" { value = module.s3.models_bucket_name }
+output "sqs_training_queue" { value = module.sqs.training_queue_url }
+output "sqs_prediction_queue" { value = module.sqs.prediction_queue_url }
+output "rds_endpoint" { value = module.rds.endpoint }

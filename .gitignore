@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# Airflow
+airflow/logs/
+airflow/plugins/
+
+# Data (MIMIC can't be in git)
+data/
+*.csv
+*.parquet
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+e2e-test.log
+
+# SHAP reports
+shap_reports/
+
+# Docker
+kubeconfig/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.local

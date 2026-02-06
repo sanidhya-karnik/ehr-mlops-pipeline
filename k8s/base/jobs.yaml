@@ -1,0 +1,96 @@
+# =============================================================================
+# Training Job Template
+# Triggered by Airflow or manually
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-training
+  namespace: mlops
+  labels:
+    app: model-training
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 3600  # 1 hour max
+  ttlSecondsAfterFinished: 86400  # Clean up after 24 hours
+  template:
+    metadata:
+      labels:
+        app: model-training
+    spec:
+      restartPolicy: Never
+      serviceAccountName: mlops-app
+      containers:
+        - name: training
+          image: mimic-mlops-training:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model-name"
+            - "readmission_model"
+            - "--output-path"
+            - "s3://mimic-models/models/"
+          envFrom:
+            - configMapRef:
+                name: mlops-config
+            - secretRef:
+                name: mlops-secrets
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 4Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+---
+# =============================================================================
+# dbt Run Job Template
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dbt-run
+  namespace: mlops
+  labels:
+    app: dbt-run
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800  # 30 min max
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: dbt-run
+    spec:
+      restartPolicy: Never
+      serviceAccountName: mlops-app
+      containers:
+        - name: dbt
+          image: mimic-mlops-dbt:latest
+          imagePullPolicy: IfNotPresent
+          command: ["dbt"]
+          args: ["run", "--profiles-dir", "/app", "--project-dir", "/app"]
+          envFrom:
+            - secretRef:
+                name: mlops-secrets
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
