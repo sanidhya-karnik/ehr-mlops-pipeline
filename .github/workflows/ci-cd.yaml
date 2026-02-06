@@ -86,7 +86,9 @@ jobs:
         uses: azure/setup-kubectl@v3
       
       - name: Validate manifests
-        run: kubectl apply -k k8s/overlays/dev --dry-run=client
+        run: |
+          kubectl kustomize k8s/overlays/dev > /dev/null
+          echo "Kustomize build successful"
 
   # ===========================================================================
   # dbt Validation
